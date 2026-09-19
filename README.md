@@ -237,15 +237,30 @@ sudo systemctl start studyvideo
 
 只需备份两样：**数据库** 与 **PDF 资料目录**（`DATA_DIR`）。
 
+仓库提供 `deploy/backup.sh`，自动完成以下工作（数据库 + 资料目录，默认保留 30 天）：
+
+```bash
+# 手动执行一次
+sudo /data/studyvideo/bin/backup.sh
+
+# 配置每日自动备份（以 root 身份，因为需要读取 .env 与写入备份目录）
+# /etc/cron.d/studyvideo-backup:
+#   30 3 * * *  root  /data/studyvideo/bin/backup.sh >> /var/log/studyvideo-backup.log 2>&1
+```
+
+可用环境变量：`APP_DIR`（默认 `/data/studyvideo`）、`BACKUP_DIR`（默认 `/data/backup`）、`KEEP_DAYS`（默认 30）。
+
+手动备份/恢复：
+
 ```bash
 # 数据库
-mysqldump --single-transaction -u studyvideo -p studyvideo | gzip > studyvideo-db-$(date +%F).sql.gz
+mysqldump --single-transaction --no-tablespaces -u studyvideo -p studyvideo | gzip > studyvideo-db-$(date +%F).sql.gz
 # PDF 资料
-tar czf studyvideo-data-$(date +%F).tar.gz -C /opt/studyvideo data
+tar czf studyvideo-data-$(date +%F).tar.gz -C /data/studyvideo data
 
 # 恢复
 gunzip -c studyvideo-db-YYYY-MM-DD.sql.gz | mysql -u studyvideo -p studyvideo
-tar xzf studyvideo-data-YYYY-MM-DD.tar.gz -C /opt/studyvideo
+tar xzf studyvideo-data-YYYY-MM-DD.tar.gz -C /data/studyvideo
 sudo systemctl restart studyvideo
 ```
 
