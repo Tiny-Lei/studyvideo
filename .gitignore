@@ -1,0 +1,18 @@
+# 构建产物
+bin/
+
+# 本地配置（含密码，勿提交）
+.env
+
+# 前端依赖
+frontend/node_modules/
+
+# 说明：backend/internal/web/dist 为前端构建产物，随仓库提交，
+# 克隆后无需 Node 环境即可直接 `go build` 运行；重新构建用 `make build`。
+
+# 上传的 PDF 资料（运行时数据，勿提交）
+data/
+
+# 其它
+*.log
+tmp/

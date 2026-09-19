@@ -1,0 +1,13 @@
+{
+  "name": "StudyVideo · 题目讲解视频站",
+  "short_name": "StudyVideo",
+  "description": "按主题与分类浏览题目讲解视频，在线播放、支持搜索",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6fa",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

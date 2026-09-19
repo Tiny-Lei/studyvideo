@@ -1,0 +1,18 @@
+[Unit]
+Description=StudyVideo 题目讲解视频站
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/studyvideo
+EnvironmentFile=/opt/studyvideo/.env
+ExecStart=/opt/studyvideo/bin/studyvideo
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+# 资料目录读写权限：chown -R www-data:www-data /opt/studyvideo/data
+ReadWritePaths=/opt/studyvideo/data
+
+[Install]
+WantedBy=multi-user.target
