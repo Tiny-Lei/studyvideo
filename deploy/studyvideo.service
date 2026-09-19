@@ -1,18 +1,52 @@
 [Unit]
 Description=StudyVideo 题目讲解视频站
-After=network.target mysql.service
+After=network-online.target mysql.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+# 若与 MySQL 同机部署，可让 systemd 感知依赖（MySQL 单元名以实际为准）
+# Requires=mysql.service
 
 [Service]
 Type=simple
-User=www-data
+User=studyvideo
+Group=studyvideo
 WorkingDirectory=/opt/studyvideo
 EnvironmentFile=/opt/studyvideo/.env
 ExecStart=/opt/studyvideo/bin/studyvideo
+ExecReload=/bin/kill -HUP $MAINPID
+
+# 优雅退出与自动重启
+KillSignal=SIGTERM
+TimeoutStopSec=15
 Restart=on-failure
 RestartSec=5
+
+# 日志交给 journald：journalctl -u studyvideo -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=studyvideo
+
+# 安全加固
 NoNewPrivileges=true
-# 资料目录读写权限：chown -R www-data:www-data /opt/studyvideo/data
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# 仅允许写入资料目录
 ReadWritePaths=/opt/studyvideo/data
+
+# 资源限制（按服务器规格调整）
+LimitNOFILE=65535
+# 内存上限可按需开启，例如 2G 机器限制 512M：
+# MemoryMax=512M
 
 [Install]
 WantedBy=multi-user.target

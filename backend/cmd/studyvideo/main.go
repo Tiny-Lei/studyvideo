@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,13 +21,30 @@ import (
 	"studyvideo/internal/httpapi"
 	"studyvideo/internal/risk"
 	"studyvideo/internal/store"
+	"studyvideo/internal/version"
 	"studyvideo/internal/web"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	showVersion := flag.Bool("version", false, "打印版本信息后退出")
+	printConfig := flag.Bool("print-config", false, "打印当前生效配置（隐藏敏感值）后退出")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("StudyVideo %s\n", version.String())
+		return
+	}
 
 	cfg := config.Load()
+	initLogger(cfg)
+
+	if *printConfig {
+		cfg.Print(os.Stdout)
+		return
+	}
+
+	slog.Info("StudyVideo 启动中", "version", version.Version, "commit", version.Commit, "built", version.BuildTime)
+
 	db, err := store.Open(cfg.DSN)
 	if err != nil {
 		slog.Error("数据库初始化失败", "error", err)
@@ -83,6 +102,18 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("关闭服务失败", "error", err)
 	}
+}
+
+// initLogger 按配置初始化全局日志（支持 text/json 与日志级别）。
+func initLogger(cfg *config.Config) {
+	opts := &slog.HandlerOptions{Level: cfg.LogLevelValue()}
+	var handler slog.Handler
+	if cfg.LogFormat == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+	slog.SetDefault(slog.New(handler))
 }
 
 // cleanupStats 每天清理一次过早的访问/观看明细，避免统计表无限增长。

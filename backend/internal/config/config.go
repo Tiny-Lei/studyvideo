@@ -3,6 +3,8 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strconv"
@@ -42,6 +44,10 @@ type Config struct {
 
 	// 视频访问/观看明细保留天数（0 表示永久保留）
 	StatsKeepDays int
+
+	// 日志
+	LogLevel  string // debug / info / warn / error
+	LogFormat string // text / json
 }
 
 func getenv(key, def string) string {
@@ -116,5 +122,66 @@ func Load() *Config {
 		DataDir:         getenv("DATA_DIR", "./data"),
 		MaxPDFSizeBytes: getenvInt64("MAX_PDF_SIZE_MB", 50) * 1024 * 1024,
 		StatsKeepDays:   getenvInt("STATS_KEEP_DAYS", 730),
+		LogLevel:        strings.ToLower(getenv("LOG_LEVEL", "info")),
+		LogFormat:       strings.ToLower(getenv("LOG_FORMAT", "text")),
 	}
+}
+
+// LogLevelValue 把配置的日志级别映射为 slog 级别。
+func (c *Config) LogLevelValue() slog.Level {
+	switch c.LogLevel {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// Print 输出当前生效配置（敏感值仅显示是否已设置），用于部署排查。
+func (c *Config) Print(w io.Writer) {
+	mask := func(v string) string {
+		if strings.TrimSpace(v) == "" {
+			return "(未设置)"
+		}
+		return "(已设置)"
+	}
+	dsn := c.DSN
+	if i := strings.LastIndex(dsn, "@"); i > 0 {
+		if j := strings.Index(dsn, ":"); j > 0 && j < i {
+			dsn = dsn[:j+1] + "******" + dsn[i:]
+		}
+	}
+	fmt.Fprintf(w, `StudyVideo 生效配置
+  HTTP_ADDR              %s
+  DB_DSN                 %s
+  ADMIN_PASSWORD         %s
+  SESSION_SECRET         %s
+  COOKIE_SECURE          %v
+  TRUST_PROXY            %s
+  DATA_DIR               %s
+  MAX_PDF_SIZE_MB        %d
+  STATS_KEEP_DAYS        %d
+  DAILY_VIDEO_LIMIT      %d
+  DAILY_TOTAL_LIMIT      %d
+  BURST_VIDEO_LIMIT      %d
+  BURST_TOTAL_LIMIT      %d
+  BURST_WINDOW_SECONDS   %d
+  BLOCK_MINUTES          %d
+  CHECK_INTERVAL_MINUTES %d
+  CHECK_ON_START         %v
+  CHECK_TIMEOUT_SECONDS  %d
+  CHECK_WORKERS          %d
+  LOG_LEVEL              %s
+  LOG_FORMAT             %s
+  ALERT_WEBHOOK_URL      %s
+`,
+		c.Addr, dsn, mask(c.AdminPassword), mask(string(c.SessionSecret)), c.CookieSecure, c.TrustProxy,
+		c.DataDir, c.MaxPDFSizeBytes>>20, c.StatsKeepDays,
+		c.DailyVideoLimit, c.DailyTotalLimit, c.BurstVideoLimit, c.BurstTotalLimit, int(c.BurstWindow.Seconds()),
+		c.BlockMinutes, int(c.CheckInterval.Minutes()), c.CheckOnStart, int(c.CheckTimeout.Seconds()), c.CheckWorkers,
+		c.LogLevel, c.LogFormat, c.AlertWebhookURL)
 }

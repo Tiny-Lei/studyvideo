@@ -7,10 +7,16 @@ import (
 	"net/http"
 
 	"studyvideo/internal/store"
+	"studyvideo/internal/version"
 )
 
 func (s *API) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"version": version.Version,
+		"commit":  version.Commit,
+		"built":   version.BuildTime,
+	})
 }
 
 func (s *API) handleHome(w http.ResponseWriter, r *http.Request) {

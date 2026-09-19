@@ -15,20 +15,27 @@ StudyVideo/
 │   │   ├── risk/                   # IP 风控：滑动窗口限流、封禁、真实 IP 解析
 │   │   ├── health/                 # MP4 链接健康检查（HEAD/Range 探测）
 │   │   ├── httpapi/                # HTTP 路由、公开/管理接口、批量解析
+│   │   ├── compress/               # gzip 压缩中间件
+│   │   ├── filestore/              # PDF 资料本地文件存储
 │   │   ├── alert/                  # 告警日志 + Webhook 推送
+│   │   ├── version/                # 构建期注入的版本信息
 │   │   └── web/                    # 内嵌前端产物（dist，由 frontend 构建）
 │   └── go.mod / go.sum
 ├── frontend/                       # Vue 3 + Vite + Element Plus 前端（独立项目）
 │   ├── src/
-│   │   ├── views/                  # 首页、主题、播放、搜索
-│   │   ├── views/admin/            # 管理后台（主题/视频/批量/健康/风控）
+│   │   ├── views/                  # 首页、主题、分类、播放、搜索
+│   │   ├── views/admin/            # 管理后台（主题/分类/视频/批量/健康/风控）
 │   │   ├── components/ api.js router.js utils.js styles.css
 │   ├── package.json / vite.config.js
-├── deploy/studyvideo.service       # systemd 示例
+├── deploy/
+│   ├── install.sh                  # systemd 一键安装/升级/卸载脚本
+│   └── studyvideo.service          # hardened systemd 单元
+├── .github/workflows/              # CI（测试+构建）与 Release（打 tag 自动发布）
 ├── bin/                            # 编译产物（单二进制）
+├── dist/                           # make release 生成的多平台发布包
 ├── .env.example                    # 环境变量模板；复制为 .env 使用
-├── Makefile                        # make build / run / test
-└── run.sh                          # 加载 .env 并启动二进制
+├── Makefile                        # 构建/测试/发布/运行入口（make help）
+└── run.sh                          # 加载 .env 并启动二进制（本地运行用）
 ```
 
 前后端完全分离：前端是独立 npm 项目，构建产物输出到 `backend/internal/web/dist`，由 Go `embed` 打进单二进制；后端也可脱离前端独立开发（`go run ./cmd/studyvideo` 会返回“前端未构建”占位页）。
@@ -142,6 +149,100 @@ FLUSH PRIVILEGES;
 - **4C4G / 20Mbps 估算**：日常几百人同时在线无压力；瓶颈在首屏带宽（约 5-6 人/秒的首次访问）而非 CPU/数据库。PDF 下载量大时建议控制单文件大小或改走 CDN。
 - 若前置 nginx，可再开 `gzip_static on;` 与静态资源缓存进一步减负。
 
+## 部署
+
+生产部署推荐「发布包 + systemd 一键安装」：单二进制（内嵌前端），无 Node/反向代理也能跑。
+
+### 前置：准备数据库
+
+任意 MySQL 5.7+/8.0，应用会自动建库建表。建议单独建账号：
+
+```sql
+CREATE DATABASE studyvideo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'studyvideo'@'localhost' IDENTIFIED BY '你的强密码';
+GRANT ALL PRIVILEGES ON studyvideo.* TO 'studyvideo'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+### 方式一：发布包一键安装（推荐）
+
+```bash
+# 1) 在开发机/CI 生成发布包（自动带上版本号）
+make release
+#    dist/studyvideo_<版本>_linux_amd64.tar.gz + checksums.txt
+
+# 2) 上传到服务器后安装（需 root/sudo）
+tar xzf studyvideo_*.tar.gz
+sudo ./studyvideo_*/deploy/install.sh --release-url /path/to/studyvideo_*.tar.gz
+#    或已解压：sudo ./deploy/install.sh   （使用当前目录 bin/studyvideo）
+
+# 3) 按提示修改数据库连接串后重启
+sudo vim /opt/studyvideo/.env     # 改 DB_DSN
+sudo systemctl restart studyvideo
+```
+
+安装脚本会：创建 `studyvideo` 系统用户 → 安装程序到 `/opt/studyvideo/bin` → 生成 `/opt/studyvideo/.env`（含随机管理密码）→ 安装 hardened systemd 单元 → 启动并开机自启。
+初始管理密码在 `/opt/studyvideo/INITIAL_ADMIN_PASSWORD.txt`，登录后请修改并删除该文件。
+
+卸载：`sudo ./deploy/install.sh --uninstall`（保留程序与数据）。
+
+### 方式二：源码构建后部署
+
+```bash
+make deps && make build          # 产物 bin/studyvideo（内嵌前端）
+sudo ./deploy/install.sh         # 安装到 /opt/studyvideo 并注册 systemd
+```
+
+### 方式三：临时运行（本机调试）
+
+```bash
+make build && cp .env.example .env && vim .env
+./run.sh                        # 前台运行，读取 .env
+```
+
+### 日常运维
+
+| 操作 | 命令 |
+| --- | --- |
+| 查看状态 | `systemctl status studyvideo` |
+| 查看日志 | `journalctl -u studyvideo -f`（JSON 日志可设 `LOG_FORMAT=json`） |
+| 重启 / 停止 | `systemctl restart / stop studyvideo` |
+| 查看版本 | `/opt/studyvideo/bin/studyvideo --version` |
+| 查看生效配置 | `/opt/studyvideo/bin/studyvideo --print-config`（敏感值打码） |
+| 健康检查 | `curl -s localhost:8080/api/health`（返回版本信息，可直接给监控/负载均衡用） |
+
+### 升级
+
+```bash
+# 1. 备份（见下）
+# 2. 替换二进制
+sudo systemctl stop studyvideo
+sudo cp bin/studyvideo /opt/studyvideo/bin/studyvideo
+sudo systemctl start studyvideo
+# 数据库表结构会在启动时自动迁移（幂等）
+```
+
+### 备份与恢复
+
+只需备份两样：**数据库** 与 **PDF 资料目录**（`DATA_DIR`）。
+
+```bash
+# 数据库
+mysqldump --single-transaction -u studyvideo -p studyvideo | gzip > studyvideo-db-$(date +%F).sql.gz
+# PDF 资料
+tar czf studyvideo-data-$(date +%F).tar.gz -C /opt/studyvideo data
+
+# 恢复
+gunzip -c studyvideo-db-YYYY-MM-DD.sql.gz | mysql -u studyvideo -p studyvideo
+tar xzf studyvideo-data-YYYY-MM-DD.tar.gz -C /opt/studyvideo
+sudo systemctl restart studyvideo
+```
+
+### 发布流程（CI）
+
+打 tag 即触发 `.github/workflows/release.yml`：构建前端 → 交叉编译 linux/darwin × amd64/arm64 → 生成 `checksums.txt` → 创建 GitHub Release。
+日常提交由 `.github/workflows/ci.yml` 执行格式检查、`go vet`、单元测试与 MySQL 集成测试、前端构建。
+
 ## 反向代理（nginx 示例）
 
 ```nginx
@@ -162,24 +263,31 @@ server {
 
 HTTPS 场景：证书配置好后设 `COOKIE_SECURE=true`。注意页面是 HTTPS、视频直链是 HTTP 时会被浏览器拦截（混合内容），请确认 MP4 链接本身是 HTTPS。
 
-## systemd 部署示例
-
-见 `deploy/studyvideo.service`，复制到 `/etc/systemd/system/` 后：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now studyvideo
-```
-
 ## 开发
 
 ```bash
+make help                        # 查看所有命令
+
 # 终端 1：后端（:8080）
 cd backend && go run ./cmd/studyvideo     # 或根目录 make run（需已构建过前端）
 
 # 终端 2：前端热更新（:5173，自动代理 /api 到 8080）
 cd frontend && npm run dev
 ```
+
+常用开发命令：
+
+| 命令 | 说明 |
+| --- | --- |
+| `make build` | 前端 + 后端完整构建 |
+| `make lint` | gofmt + go vet |
+| `make check` | lint + 测试（CI 等价） |
+| `make test-race` | 带竞态检测的测试 |
+| `make cover` | 生成覆盖率 `coverage.out` |
+| `make release` | 交叉编译多平台发布包到 `dist/` |
+| `make version` | 查看版本信息 |
+
+版本信息通过 `-ldflags` 注入，`--version` 与 `/api/health` 均可查看；运行时还支持 `--print-config` 打印打码后的生效配置。
 
 重新构建后前端会重新嵌入二进制，直接 `make build` 即可。
 

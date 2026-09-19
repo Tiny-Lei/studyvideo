@@ -1,5 +1,7 @@
 # 构建产物
 bin/
+dist/
+coverage.out
 
 # 本地配置（含密码，勿提交）
 .env
