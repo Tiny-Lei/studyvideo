@@ -27,6 +27,7 @@ func (s *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.auth.CheckPassword(req.Password) {
+		s.risk.LoginFailed(ip)
 		writeErr(w, http.StatusUnauthorized, "密码错误")
 		return
 	}

@@ -95,6 +95,11 @@ FLUSH PRIVILEGES;
 | `BURST_TOTAL_LIMIT` | `120` | 短时间总请求上限 |
 | `BURST_WINDOW_SECONDS` | `10` | 短时间统计窗口 |
 | `BLOCK_MINUTES` | `30` | 突发超限后的封禁时长 |
+| `LOGIN_ATTEMPTS` | `10` | 单 IP 登录尝试上限（窗口内） |
+| `LOGIN_WINDOW_SECONDS` | `600` | 单 IP 登录尝试统计窗口 |
+| `LOGIN_GLOBAL_LIMIT` | `30` | 全站登录失败阈值（窗口内），达阈值锁定全站登录；0 = 禁用 |
+| `LOGIN_GLOBAL_WINDOW_SECONDS` | `900` | 全局失败统计窗口 |
+| `LOGIN_LOCKOUT_SECONDS` | `1800` | 触发全站锁定后的锁定时长 |
 | `CHECK_INTERVAL_MINUTES` | `360` | 链接健康检查间隔（分钟） |
 | `CHECK_ON_START` | `true` | 启动后自动检查一次链接 |
 | `CHECK_TIMEOUT_SECONDS` | `15` | 单条链接探测超时 |
@@ -137,7 +142,13 @@ FLUSH PRIVILEGES;
 2. 短时间高频（默认 10 秒 > 20 次播放，或 > 120 次总请求）→ 封禁 30 分钟。
 3. 单日播放请求 > 800 次（或总请求 > 8000 次）→ 封禁至次日 0 点。
 4. 封禁写入 `blocked_ips`，公开接口返回 `429` + `Retry-After`，管理端不受影响。
-5. 管理员登录同样有限制（默认 10 次 / 10 分钟）。
+5. 管理员登录保护（两道）：
+   - **单 IP 限流**：默认 10 次 / 10 分钟；
+   - **全站失败锁定**：默认 15 分钟内全站累计失败 30 次即锁定登录 30 分钟（防止换 IP 分布式爆破），
+     失败会记录日志，触发锁定时通过 `ALERT_WEBHOOK_URL` 推送告警。阈值可通过 `LOGIN_GLOBAL_*` 调整，设 0 禁用。
+
+> 后台登录页可被扫描器发现，这本身不泄露信息；真正的风险是弱密码。除上述限制外，建议使用长随机密码（`ADMIN_PASSWORD`），
+> 如有固定出口 IP 可再叠加 nginx 白名单或 TOTP 二次验证。
 
 真实 IP 获取：同机 nginx 反代时 `TRUST_PROXY=auto` 即可正确识别 `X-Forwarded-For`；若前面是云负载均衡（非同机），需设 `TRUST_PROXY=true` 并确保 LB 会重写 XFF 头。
 

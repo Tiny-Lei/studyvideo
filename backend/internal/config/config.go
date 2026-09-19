@@ -31,6 +31,11 @@ type Config struct {
 	LoginAttempts   int
 	LoginWindow     time.Duration
 
+	// 全局登录失败保护：窗口内全站累计失败达到阈值后，无条件锁定登录一段时间
+	LoginGlobalLimit  int
+	LoginGlobalWindow time.Duration
+	LoginLockout      time.Duration
+
 	CheckInterval time.Duration
 	CheckOnStart  bool
 	CheckTimeout  time.Duration
@@ -100,30 +105,33 @@ func Load() *Config {
 		slog.Warn("正在使用默认管理密码 admin123，请通过环境变量 ADMIN_PASSWORD 修改！")
 	}
 	return &Config{
-		Addr:            getenv("HTTP_ADDR", ":8080"),
-		DSN:             getenv("DB_DSN", "studyvideo:studyvideo123@tcp(127.0.0.1:3306)/studyvideo?parseTime=true&charset=utf8mb4&loc=Local&timeout=5s"),
-		AdminPassword:   password,
-		SessionSecret:   []byte(secret),
-		CookieSecure:    getenvBool("COOKIE_SECURE", false),
-		TrustProxy:      getenv("TRUST_PROXY", "auto"),
-		DailyVideoLimit: getenvInt64("DAILY_VIDEO_LIMIT", 800),
-		DailyTotalLimit: getenvInt64("DAILY_TOTAL_LIMIT", 8000),
-		BurstWindow:     time.Duration(getenvInt("BURST_WINDOW_SECONDS", 10)) * time.Second,
-		BurstVideoLimit: getenvInt("BURST_VIDEO_LIMIT", 20),
-		BurstTotalLimit: getenvInt("BURST_TOTAL_LIMIT", 120),
-		BlockMinutes:    getenvInt("BLOCK_MINUTES", 30),
-		LoginAttempts:   getenvInt("LOGIN_ATTEMPTS", 10),
-		LoginWindow:     time.Duration(getenvInt("LOGIN_WINDOW_SECONDS", 600)) * time.Second,
-		CheckInterval:   time.Duration(getenvInt("CHECK_INTERVAL_MINUTES", 360)) * time.Minute,
-		CheckOnStart:    getenvBool("CHECK_ON_START", true),
-		CheckTimeout:    time.Duration(getenvInt("CHECK_TIMEOUT_SECONDS", 15)) * time.Second,
-		CheckWorkers:    getenvInt("CHECK_WORKERS", 6),
-		AlertWebhookURL: strings.TrimSpace(os.Getenv("ALERT_WEBHOOK_URL")),
-		DataDir:         getenv("DATA_DIR", "./data"),
-		MaxPDFSizeBytes: getenvInt64("MAX_PDF_SIZE_MB", 50) * 1024 * 1024,
-		StatsKeepDays:   getenvInt("STATS_KEEP_DAYS", 730),
-		LogLevel:        strings.ToLower(getenv("LOG_LEVEL", "info")),
-		LogFormat:       strings.ToLower(getenv("LOG_FORMAT", "text")),
+		Addr:              getenv("HTTP_ADDR", ":8080"),
+		DSN:               getenv("DB_DSN", "studyvideo:studyvideo123@tcp(127.0.0.1:3306)/studyvideo?parseTime=true&charset=utf8mb4&loc=Local&timeout=5s"),
+		AdminPassword:     password,
+		SessionSecret:     []byte(secret),
+		CookieSecure:      getenvBool("COOKIE_SECURE", false),
+		TrustProxy:        getenv("TRUST_PROXY", "auto"),
+		DailyVideoLimit:   getenvInt64("DAILY_VIDEO_LIMIT", 800),
+		DailyTotalLimit:   getenvInt64("DAILY_TOTAL_LIMIT", 8000),
+		BurstWindow:       time.Duration(getenvInt("BURST_WINDOW_SECONDS", 10)) * time.Second,
+		BurstVideoLimit:   getenvInt("BURST_VIDEO_LIMIT", 20),
+		BurstTotalLimit:   getenvInt("BURST_TOTAL_LIMIT", 120),
+		BlockMinutes:      getenvInt("BLOCK_MINUTES", 30),
+		LoginAttempts:     getenvInt("LOGIN_ATTEMPTS", 10),
+		LoginWindow:       time.Duration(getenvInt("LOGIN_WINDOW_SECONDS", 600)) * time.Second,
+		LoginGlobalLimit:  getenvInt("LOGIN_GLOBAL_LIMIT", 30),
+		LoginGlobalWindow: time.Duration(getenvInt("LOGIN_GLOBAL_WINDOW_SECONDS", 900)) * time.Second,
+		LoginLockout:      time.Duration(getenvInt("LOGIN_LOCKOUT_SECONDS", 1800)) * time.Second,
+		CheckInterval:     time.Duration(getenvInt("CHECK_INTERVAL_MINUTES", 360)) * time.Minute,
+		CheckOnStart:      getenvBool("CHECK_ON_START", true),
+		CheckTimeout:      time.Duration(getenvInt("CHECK_TIMEOUT_SECONDS", 15)) * time.Second,
+		CheckWorkers:      getenvInt("CHECK_WORKERS", 6),
+		AlertWebhookURL:   strings.TrimSpace(os.Getenv("ALERT_WEBHOOK_URL")),
+		DataDir:           getenv("DATA_DIR", "./data"),
+		MaxPDFSizeBytes:   getenvInt64("MAX_PDF_SIZE_MB", 50) * 1024 * 1024,
+		StatsKeepDays:     getenvInt("STATS_KEEP_DAYS", 730),
+		LogLevel:          strings.ToLower(getenv("LOG_LEVEL", "info")),
+		LogFormat:         strings.ToLower(getenv("LOG_FORMAT", "text")),
 	}
 }
 
@@ -171,6 +179,8 @@ func (c *Config) Print(w io.Writer) {
   BURST_TOTAL_LIMIT      %d
   BURST_WINDOW_SECONDS   %d
   BLOCK_MINUTES          %d
+  LOGIN_ATTEMPTS         %d（单 IP，窗口 %d 秒）
+  LOGIN_GLOBAL_LIMIT     %d（全站，窗口 %d 秒，锁定 %d 秒；0 = 禁用）
   CHECK_INTERVAL_MINUTES %d
   CHECK_ON_START         %v
   CHECK_TIMEOUT_SECONDS  %d
@@ -182,6 +192,9 @@ func (c *Config) Print(w io.Writer) {
 		c.Addr, dsn, mask(c.AdminPassword), mask(string(c.SessionSecret)), c.CookieSecure, c.TrustProxy,
 		c.DataDir, c.MaxPDFSizeBytes>>20, c.StatsKeepDays,
 		c.DailyVideoLimit, c.DailyTotalLimit, c.BurstVideoLimit, c.BurstTotalLimit, int(c.BurstWindow.Seconds()),
-		c.BlockMinutes, int(c.CheckInterval.Minutes()), c.CheckOnStart, int(c.CheckTimeout.Seconds()), c.CheckWorkers,
+		c.BlockMinutes,
+		c.LoginAttempts, int(c.LoginWindow.Seconds()),
+		c.LoginGlobalLimit, int(c.LoginGlobalWindow.Seconds()), int(c.LoginLockout.Seconds()),
+		int(c.CheckInterval.Minutes()), c.CheckOnStart, int(c.CheckTimeout.Seconds()), c.CheckWorkers,
 		c.LogLevel, c.LogFormat, c.AlertWebhookURL)
 }

@@ -29,6 +29,12 @@ type Manager struct {
 	mu         sync.Mutex
 	blockCache map[string]time.Time
 	lastCheck  map[string]time.Time
+
+	// 全局登录失败保护（防分布式/多 IP 爆破）
+	loginMu          sync.Mutex
+	loginFailures    []int64   // 全局失败时间戳（滑动窗口）
+	loginLockedUntil time.Time // 全站锁定截止时间
+	loginAlertedAt   time.Time // 上次告警时间，避免重复轰炸
 }
 
 func New(st *store.Store, cfg *config.Config, a *auth.Auth, al *alert.Alerter) *Manager {
@@ -214,13 +220,78 @@ func (m *Manager) Unblock(ctx context.Context, ip string) error {
 }
 
 // LoginAllowed 判断该 IP 是否允许尝试登录。
+// 除单 IP 限流外，还会检查全站级别的失败锁定（防分布式爆破）。
 func (m *Manager) LoginAllowed(ip string) (bool, int) {
+	if locked, until := m.loginGloballyLocked(); locked {
+		retry := int(time.Until(until).Seconds()) + 1
+		return false, retry
+	}
 	return m.login.Allow("l:" + ip)
 }
 
-// LoginSucceeded 登录成功后清空该 IP 的失败计数。
+// LoginFailed 记录一次登录失败；窗口内全局失败数达到阈值时锁定全站登录并告警。
+func (m *Manager) LoginFailed(ip string) {
+	now := time.Now().UnixNano()
+	window := m.cfg.LoginGlobalWindow.Nanoseconds()
+	cutoff := now - window
+
+	m.loginMu.Lock()
+	arr := m.loginFailures
+	idx := 0
+	for idx < len(arr) && arr[idx] < cutoff {
+		idx++
+	}
+	if idx > 0 {
+		arr = append([]int64(nil), arr[idx:]...)
+	}
+	arr = append(arr, now)
+	m.loginFailures = arr
+	count := len(arr)
+
+	limit := m.cfg.LoginGlobalLimit
+	triggered := limit > 0 && count >= limit
+
+	var lockedUntil time.Time
+	if triggered {
+		lockedUntil = time.Now().Add(m.cfg.LoginLockout)
+		m.loginLockedUntil = lockedUntil
+		m.loginFailures = nil // 锁定后清空，解封后重新计数
+	}
+	shouldAlert := triggered && time.Since(m.loginAlertedAt) > 10*time.Minute
+	if shouldAlert {
+		m.loginAlertedAt = time.Now()
+	}
+	m.loginMu.Unlock()
+
+	slog.Warn("后台登录失败", "ip", ip, "失败次数", count, "窗口秒", int(m.cfg.LoginGlobalWindow.Seconds()))
+	if triggered {
+		slog.Error("登录失败次数达到全局阈值，已临时锁定后台登录",
+			"阈值", limit, "锁定至", lockedUntil.Format(time.RFC3339))
+		if shouldAlert {
+			m.alert.Send(fmt.Sprintf(
+				"【StudyVideo 安全告警】后台登录失败次数已达 %d 次（窗口 %d 秒），已自动锁定登录至 %s。请确认是否为本人操作，必要时检查服务器安全。",
+				limit, int(m.cfg.LoginGlobalWindow.Seconds()), lockedUntil.Format("2006-01-02 15:04:05")))
+		}
+	}
+}
+
+// loginGloballyLocked 返回全站登录是否处于锁定状态及解锁时间。
+func (m *Manager) loginGloballyLocked() (bool, time.Time) {
+	m.loginMu.Lock()
+	defer m.loginMu.Unlock()
+	if m.loginLockedUntil.IsZero() || time.Now().After(m.loginLockedUntil) {
+		return false, time.Time{}
+	}
+	return true, m.loginLockedUntil
+}
+
+// LoginSucceeded 登录成功后清空该 IP 的失败计数与全局失败记录。
 func (m *Manager) LoginSucceeded(ip string) {
 	m.login.Reset("l:" + ip)
+	m.loginMu.Lock()
+	m.loginFailures = nil
+	m.loginLockedUntil = time.Time{}
+	m.loginMu.Unlock()
 }
 
 func (m *Manager) ClientIP(r *http.Request) string {

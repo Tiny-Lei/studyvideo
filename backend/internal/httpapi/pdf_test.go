@@ -474,3 +474,40 @@ func TestVideoStatsEndpoints(t *testing.T) {
 		t.Fatalf("管理端列表统计未附带: %+v", listResp.Videos)
 	}
 }
+
+func TestLoginFailureTriggersGlobalLockout(t *testing.T) {
+	e := newTestEnv(t)
+	e.cfg.LoginGlobalLimit = 3
+	e.cfg.LoginGlobalWindow = time.Minute
+	e.cfg.LoginLockout = time.Minute
+	// 用较小阈值重建风控，确保走真实接口逻辑
+	auther := auth.New(e.cfg.AdminPassword, e.cfg.SessionSecret, false)
+	riskMgr := risk.New(e.store, e.cfg, auther, alert.New(""))
+	api := New(e.store, e.cfg, auther, riskMgr, nil, e.files)
+	mux := http.NewServeMux()
+	api.Register(mux)
+
+	login := func(password, ip string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(`{"password":"`+password+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = ip + ":12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 三个不同 IP 各失败一次，触发全局锁定
+	for i, ip := range []string{"203.0.113.1", "203.0.113.2", "203.0.113.3"} {
+		if rec := login("wrong-password", ip); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("第 %d 次错误密码应返回 401, got %d", i+1, rec.Code)
+		}
+	}
+	// 锁定后，即使密码正确也应被拒绝
+	rec := login(e.cfg.AdminPassword, "192.0.2.9")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("全局锁定后应返回 429, got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("429 应带 Retry-After")
+	}
+}
