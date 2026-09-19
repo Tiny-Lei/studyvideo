@@ -7,15 +7,18 @@
 #   ./deploy/install.sh --release-url URL   # 从发布包 URL 安装
 #   ./deploy/install.sh --uninstall         # 卸载（保留数据）
 #
-# 安装内容：
-#   /opt/studyvideo/bin/studyvideo   程序
-#   /opt/studyvideo/.env             配置（已存在则不覆盖）
-#   /opt/studyvideo/data             PDF 资料目录
+# 可通过环境变量覆盖安装目录（例如把程序与数据放到数据盘）：
+#   APP_DIR=/data/studyvideo ./deploy/install.sh
+#
+# 安装内容（以 APP_DIR=/opt/studyvideo 为例）：
+#   $APP_DIR/bin/studyvideo   程序
+#   $APP_DIR/.env             配置（已存在则不覆盖）
+#   $APP_DIR/data             PDF 资料目录
 #   /etc/systemd/system/studyvideo.service
 #
 set -euo pipefail
 
-APP_DIR=/opt/studyvideo
+APP_DIR="${APP_DIR:-/opt/studyvideo}"
 SERVICE_NAME=studyvideo
 SERVICE_FILE=/etc/systemd/system/${SERVICE_NAME}.service
 SERVICE_USER=studyvideo
@@ -84,10 +87,11 @@ require_cmd() {
 
 install_service() {
   if [[ -f "${PROJECT_DIR}/deploy/studyvideo.service" ]]; then
-    install -m 0644 "${PROJECT_DIR}/deploy/studyvideo.service" "${SERVICE_FILE}"
+    sed "s#/opt/studyvideo#${APP_DIR}#g" "${PROJECT_DIR}/deploy/studyvideo.service" > "${SERVICE_FILE}"
+    chmod 0644 "${SERVICE_FILE}"
   else
     # 独立运行本脚本（未随仓库分发）时写入等价的内置单元文件
-    cat > "${SERVICE_FILE}" <<'EOF'
+    sed "s#/opt/studyvideo#${APP_DIR}#g" > "${SERVICE_FILE}" <<'EOF'
 [Unit]
 Description=StudyVideo 题目讲解视频站
 After=network-online.target
