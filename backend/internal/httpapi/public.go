@@ -174,7 +174,38 @@ func (s *API) handleVideo(w http.ResponseWriter, r *http.Request) {
 	if len(related) > 20 {
 		related = related[:20]
 	}
+	// 记录一次访问（同日同 IP 去重），失败不影响正常返回
+	if ip := s.risk.ClientIP(r); ip != "" {
+		if err := s.store.RecordVisit(ctx, video.ID, ip); err != nil {
+			slog.Error("记录视频访问失败", "video_id", video.ID, "error", err)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"video": video, "topic": topic, "related": related, "pdfs": pdfs})
+}
+
+// handleReportWatch 由前端在视频真正开始播放时上报，用于统计「观看次数」。
+// 同日同 IP 只计一次独立观看，PV 每次累加；不计入播放限流额度。
+func (s *API) handleReportWatch(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if ok, _ := s.store.VideoExists(r.Context(), id); !ok {
+		writeErr(w, http.StatusNotFound, "视频不存在")
+		return
+	}
+	ip := s.risk.ClientIP(r)
+	if ip == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	if err := s.store.RecordWatch(r.Context(), id, ip); err != nil {
+		slog.Error("记录视频观看失败", "video_id", id, "error", err)
+		writeErr(w, http.StatusInternalServerError, "记录失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleOpenPDF 兼容旧链接：302 跳转到在线预览地址。

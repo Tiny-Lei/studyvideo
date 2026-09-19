@@ -34,6 +34,7 @@ func (s *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/categories/{id}", s.handleCategory)
 	mux.HandleFunc("GET /api/videos/{id}", s.handleVideo)
 	mux.HandleFunc("GET /api/videos/{id}/play", s.handlePlay)
+	mux.HandleFunc("POST /api/videos/{id}/watch", s.handleReportWatch)
 	mux.HandleFunc("GET /api/pdfs/{id}/file", s.handlePDFFile(false))
 	mux.HandleFunc("GET /api/pdfs/{id}/download", s.handlePDFFile(true))
 	mux.HandleFunc("GET /api/pdfs/{id}/open", s.handleOpenPDF)

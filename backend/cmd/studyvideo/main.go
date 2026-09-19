@@ -65,6 +65,7 @@ func main() {
 
 	riskMgr.Start(ctx)
 	checker.Start(ctx)
+	go cleanupStats(ctx, st, cfg.StatsKeepDays)
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -81,5 +82,30 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("关闭服务失败", "error", err)
+	}
+}
+
+// cleanupStats 每天清理一次过早的访问/观看明细，避免统计表无限增长。
+// keepDays <= 0 表示永久保留。
+func cleanupStats(ctx context.Context, st *store.Store, keepDays int) {
+	if keepDays <= 0 {
+		slog.Info("视频统计明细永久保留（STATS_KEEP_DAYS=0）")
+		return
+	}
+	cleanup := func() {
+		if err := st.CleanupVideoStats(ctx, keepDays); err != nil {
+			slog.Error("清理视频统计明细失败", "error", err)
+		}
+	}
+	cleanup()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
 	}
 }

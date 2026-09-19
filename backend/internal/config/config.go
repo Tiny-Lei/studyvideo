@@ -39,6 +39,9 @@ type Config struct {
 	// PDF 资料本地存储
 	DataDir         string
 	MaxPDFSizeBytes int64
+
+	// 视频访问/观看明细保留天数（0 表示永久保留）
+	StatsKeepDays int
 }
 
 func getenv(key, def string) string {
@@ -112,5 +115,6 @@ func Load() *Config {
 		AlertWebhookURL: strings.TrimSpace(os.Getenv("ALERT_WEBHOOK_URL")),
 		DataDir:         getenv("DATA_DIR", "./data"),
 		MaxPDFSizeBytes: getenvInt64("MAX_PDF_SIZE_MB", 50) * 1024 * 1024,
+		StatsKeepDays:   getenvInt("STATS_KEEP_DAYS", 730),
 	}
 }

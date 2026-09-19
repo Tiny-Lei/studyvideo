@@ -29,7 +29,7 @@ func newTestStore(t *testing.T) *Store {
 	t.Cleanup(func() { db.Close() })
 	s := New(db)
 	ctx := context.Background()
-	for _, table := range []string{"pdfs", "videos", "categories", "topics", "ip_daily", "blocked_ips"} {
+	for _, table := range []string{"video_stats", "pdfs", "videos", "categories", "topics", "ip_daily", "blocked_ips"} {
 		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("清理表 %s 失败: %v", table, err)
 		}
@@ -267,5 +267,79 @@ func TestStoreDailyAndBlocked(t *testing.T) {
 	}
 	if blocked, _, _ := s.IsBlocked(ctx, "198.51.100.9"); blocked {
 		t.Fatal("过期封禁应被清理")
+	}
+}
+
+func TestVideoStatsDedup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	topic := &Topic{Name: "统计主题"}
+	if err := s.CreateTopic(ctx, topic); err != nil {
+		t.Fatal(err)
+	}
+	category := &Category{TopicID: topic.ID, Name: "统计分类"}
+	if err := s.CreateCategory(ctx, category); err != nil {
+		t.Fatal(err)
+	}
+	v := &Video{TopicID: topic.ID, CategoryID: category.ID, Title: "统计视频", URL: "https://example.com/stat.mp4"}
+	if err := s.CreateVideo(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+
+	// 同一 IP 同一天：UV 只计 1，PV 累加
+	for i := 0; i < 3; i++ {
+		if err := s.RecordVisit(ctx, v.ID, "203.0.113.1"); err != nil {
+			t.Fatalf("记录访问失败: %v", err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := s.RecordWatch(ctx, v.ID, "203.0.113.1"); err != nil {
+			t.Fatalf("记录观看失败: %v", err)
+		}
+	}
+	// 第二个 IP 只看不访问（边界：先观看后访问）
+	if err := s.RecordWatch(ctx, v.ID, "203.0.113.2"); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := s.VideoStatsFor(ctx, []int64{v.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := stats[v.ID]
+	if st.VisitUV != 1 || st.WatchUV != 2 {
+		t.Fatalf("UV 去重不正确: %+v", st)
+	}
+	if st.VisitPV != 3 || st.WatchPV != 3 {
+		t.Fatalf("PV 累加不正确: %+v", st)
+	}
+
+	// 观看后再访问，不应把 visited 清零
+	if err := s.RecordVisit(ctx, v.ID, "203.0.113.2"); err != nil {
+		t.Fatal(err)
+	}
+	stats, _ = s.VideoStatsFor(ctx, []int64{v.ID})
+	st = stats[v.ID]
+	if st.VisitUV != 2 || st.WatchUV != 2 {
+		t.Fatalf("混合记录后 UV 不正确: %+v", st)
+	}
+
+	// 批量查询与空列表
+	stats, err = s.VideoStatsFor(ctx, []int64{v.ID, 999999})
+	if err != nil || len(stats) != 1 {
+		t.Fatalf("批量查询异常: %v len=%d", err, len(stats))
+	}
+	empty, err := s.VideoStatsFor(ctx, nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("空查询应返回空 map: %v %v", err, empty)
+	}
+
+	// 删除视频应级联删除统计
+	if err := s.DeleteVideo(ctx, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.VideoStatsFor(ctx, []int64{v.ID})
+	if len(after) != 0 {
+		t.Fatal("删除视频后统计应级联清理")
 	}
 }

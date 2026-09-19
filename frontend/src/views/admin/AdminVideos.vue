@@ -288,6 +288,13 @@ async function removePdf(row) {
     ElMessage.error(e.message)
   }
 }
+function conversion(stats) {
+  const visit = stats?.visit_uv || 0
+  const watch = stats?.watch_uv || 0
+  if (!visit) return '—'
+  return `${Math.round((watch / visit) * 100)}%`
+}
+
 onMounted(async () => {
   await loadTopics()
   await load()
@@ -359,6 +366,22 @@ watch(
           <el-tag v-for="tag in tagList(row.tags)" :key="tag" size="small" effect="plain" round style="margin: 2px">
             {{ tag }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="访问 / 观看" width="120" align="center">
+        <template #default="{ row }">
+          <el-tooltip placement="top">
+            <template #content>
+              <div>独立访客（按 IP 去重）：访问 {{ row.stats?.visit_uv || 0 }} 人 / 观看 {{ row.stats?.watch_uv || 0 }} 人</div>
+              <div>总次数：访问 {{ row.stats?.visit_pv || 0 }} 次 / 观看 {{ row.stats?.watch_pv || 0 }} 次</div>
+              <div>观看转化率：{{ conversion(row.stats) }}</div>
+            </template>
+            <div class="stats-cell">
+              <span>{{ row.stats?.visit_uv || 0 }}</span>
+              <span class="stats-sep">/</span>
+              <span class="stats-watch">{{ row.stats?.watch_uv || 0 }}</span>
+            </div>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column label="链接" min-width="180">
@@ -520,3 +543,22 @@ watch(
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.stats-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+.stats-sep {
+  color: #c3c7d4;
+}
+
+.stats-watch {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+</style>

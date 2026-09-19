@@ -18,6 +18,14 @@ const playError = ref('')
 const videoError = ref(false)
 
 const isWeChat = computed(() => /MicroMessenger/i.test(navigator.userAgent))
+const watchReported = ref(false)
+
+function onVideoPlay() {
+  // 只上报本页第一次播放，暂停/继续不重复计数
+  if (watchReported.value) return
+  watchReported.value = true
+  api.reportWatch(route.params.id).catch(() => {})
+}
 
 async function load() {
   loading.value = true
@@ -25,6 +33,7 @@ async function load() {
   playError.value = ''
   playUrl.value = ''
   pdfs.value = []
+  watchReported.value = false
   try {
     const res = await api.video(route.params.id)
     video.value = res.video
@@ -83,6 +92,7 @@ watch(() => route.params.id, load)
                 x5-playsinline
                 x5-video-player-type="h5-page"
                 preload="metadata"
+                @play="onVideoPlay"
                 @error="videoError = true"
               ></video>
               <div v-else class="player-state">

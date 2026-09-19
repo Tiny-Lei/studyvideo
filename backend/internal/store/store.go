@@ -724,6 +724,68 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	return st, err
 }
 
+// ---------------- 访问 / 观看统计 ----------------
+
+// RecordVisit 记录一次页面访问：同日同 IP 只计 1 个独立访客，PV 每次累加。
+func (s *Store) RecordVisit(ctx context.Context, videoID int64, ip string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO video_stats (video_id, day, ip, visited, visit_pv)
+		VALUES (?, CURDATE(), ?, 1, 1) AS new
+		ON DUPLICATE KEY UPDATE
+			visited = GREATEST(video_stats.visited, new.visited),
+			visit_pv = video_stats.visit_pv + new.visit_pv`, videoID, ip)
+	return err
+}
+
+// RecordWatch 记录一次真实播放：同日同 IP 只计 1 个独立观看，PV 每次累加。
+func (s *Store) RecordWatch(ctx context.Context, videoID int64, ip string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO video_stats (video_id, day, ip, watched, watch_pv)
+		VALUES (?, CURDATE(), ?, 1, 1) AS new
+		ON DUPLICATE KEY UPDATE
+			watched = GREATEST(video_stats.watched, new.watched),
+			watch_pv = video_stats.watch_pv + new.watch_pv`, videoID, ip)
+	return err
+}
+
+// VideoStatsFor 批量查询视频统计（UV = 独立 IP 数，PV = 总次数）。
+func (s *Store) VideoStatsFor(ctx context.Context, videoIDs []int64) (map[int64]VideoStats, error) {
+	result := make(map[int64]VideoStats, len(videoIDs))
+	if len(videoIDs) == 0 {
+		return result, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(videoIDs)), ",")
+	args := make([]any, 0, len(videoIDs))
+	for _, id := range videoIDs {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT video_id,
+			COALESCE(SUM(visited),0), COALESCE(SUM(watched),0),
+			COALESCE(SUM(visit_pv),0), COALESCE(SUM(watch_pv),0)
+		FROM video_stats WHERE video_id IN (`+placeholders+`)
+		GROUP BY video_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var st VideoStats
+		if err := rows.Scan(&id, &st.VisitUV, &st.WatchUV, &st.VisitPV, &st.WatchPV); err != nil {
+			return nil, err
+		}
+		result[id] = st
+	}
+	return result, rows.Err()
+}
+
+// CleanupVideoStats 清理过早的明细统计（默认保留 2 年）。
+func (s *Store) CleanupVideoStats(ctx context.Context, keepDays int) error {
+	if keepDays <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM video_stats WHERE day < DATE_SUB(CURDATE(), INTERVAL ? DAY)`, keepDays)
+	return err
+}
+
 // ---------------- traffic / blocking ----------------
 
 func (s *Store) IncrDaily(ctx context.Context, ip string, isVideo bool) (int64, int64, error) {

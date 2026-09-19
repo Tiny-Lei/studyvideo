@@ -27,6 +27,13 @@ type Topic struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type VideoStats struct {
+	VisitUV int64 `json:"visit_uv"`
+	WatchUV int64 `json:"watch_uv"`
+	VisitPV int64 `json:"visit_pv"`
+	WatchPV int64 `json:"watch_pv"`
+}
+
 type Video struct {
 	ID           int64      `json:"id"`
 	TopicID      int64      `json:"topic_id"`
@@ -45,6 +52,9 @@ type Video struct {
 	CheckedAt    *time.Time `json:"checked_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+
+	// 访问 / 观看统计（仅管理端列表填充）
+	Stats VideoStats `json:"stats"`
 }
 
 type PDF struct {

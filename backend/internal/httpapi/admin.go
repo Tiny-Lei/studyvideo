@@ -363,6 +363,23 @@ func (s *API) handleAdminVideos(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
+	// 附上访问 / 观看统计（仅本页，避免大范围扫描）
+	if len(videos) > 0 {
+		ids := make([]int64, 0, len(videos))
+		for _, v := range videos {
+			ids = append(ids, v.ID)
+		}
+		stats, err := s.store.VideoStatsFor(r.Context(), ids)
+		if err != nil {
+			slog.Error("查询视频统计失败", "error", err)
+		} else {
+			for i := range videos {
+				if st, ok := stats[videos[i].ID]; ok {
+					videos[i].Stats = st
+				}
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"videos": videos, "total": total, "page": f.Page, "page_size": f.PageSize})
 }
 

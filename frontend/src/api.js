@@ -55,6 +55,7 @@ export const api = {
   category: (id, order = '') => request(`/api/categories/${id}`, { params: { order } }),
   video: (id) => request(`/api/videos/${id}`),
   play: (id) => request(`/api/videos/${id}/play`),
+  reportWatch: (id) => request(`/api/videos/${id}/watch`, { method: 'POST' }),
   pdfFileUrl: (id) => `/api/pdfs/${id}/file`,
   pdfDownloadUrl: (id) => `/api/pdfs/${id}/download`,
   search: (q) => request('/api/search', { params: { q } }),

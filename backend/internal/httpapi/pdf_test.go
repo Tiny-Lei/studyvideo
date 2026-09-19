@@ -67,7 +67,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Cleanup(func() { db.Close() })
 
 	ctx := context.Background()
-	for _, table := range []string{"pdfs", "videos", "categories", "topics", "ip_daily", "blocked_ips"} {
+	for _, table := range []string{"video_stats", "pdfs", "videos", "categories", "topics", "ip_daily", "blocked_ips"} {
 		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("清理表 %s 失败: %v", table, err)
 		}
@@ -401,5 +401,76 @@ func TestPDFTraversalSafety(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "root:") {
 		t.Fatal("不应读取到系统文件")
+	}
+}
+
+func TestVideoStatsEndpoints(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+
+	// 访问详情页应记录访问（按 IP 去重）
+	for i := 0; i < 2; i++ {
+		rec := e.do(t, http.MethodGet, fmt.Sprintf("/api/videos/%d", e.videoID), nil, false)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("详情页请求失败: %d", rec.Code)
+		}
+	}
+	// 模拟不同 IP
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/videos/%d", e.videoID), nil)
+	req.RemoteAddr = "127.0.0.1:12345" // 回环来源才会信任 X-Forwarded-For
+	req.Header.Set("X-Forwarded-For", "198.51.100.10")
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+
+	stats, err := e.store.VideoStatsFor(ctx, []int64{e.videoID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := stats[e.videoID]
+	if st.VisitUV != 2 {
+		t.Fatalf("期望 2 个独立访客，实际 %d", st.VisitUV)
+	}
+	if st.VisitPV != 3 {
+		t.Fatalf("期望 3 次访问 PV，实际 %d", st.VisitPV)
+	}
+	if st.WatchUV != 0 || st.WatchPV != 0 {
+		t.Fatalf("尚未播放不应有观看数据: %+v", st)
+	}
+
+	// 上报播放
+	rec = e.do(t, http.MethodPost, fmt.Sprintf("/api/videos/%d/watch", e.videoID), nil, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上报观看失败: %d %s", rec.Code, rec.Body.String())
+	}
+	// 重复上报：UV 不变，PV 增加
+	e.do(t, http.MethodPost, fmt.Sprintf("/api/videos/%d/watch", e.videoID), nil, false)
+	stats, _ = e.store.VideoStatsFor(ctx, []int64{e.videoID})
+	st = stats[e.videoID]
+	if st.WatchUV != 1 || st.WatchPV != 2 {
+		t.Fatalf("观看统计不正确: %+v", st)
+	}
+	if st.VisitUV != 2 || st.VisitPV != 3 {
+		t.Fatalf("观看上报不应影响访问统计: %+v", st)
+	}
+
+	// 不存在的视频
+	rec = e.do(t, http.MethodPost, "/api/videos/999999/watch", nil, false)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("不存在视频应返回 404, got %d", rec.Code)
+	}
+
+	// 管理端列表应附带统计
+	rec = e.do(t, http.MethodGet, "/api/admin/videos?page=1&page_size=20", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("管理端列表失败: %d", rec.Code)
+	}
+	var listResp struct {
+		Videos []store.Video `json:"videos"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(listResp.Videos) != 1 || listResp.Videos[0].Stats.WatchUV != 1 || listResp.Videos[0].Stats.VisitUV != 2 {
+		t.Fatalf("管理端列表统计未附带: %+v", listResp.Videos)
 	}
 }
