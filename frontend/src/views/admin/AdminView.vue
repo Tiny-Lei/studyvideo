@@ -7,6 +7,8 @@ import AdminOverview from './AdminOverview.vue'
 import AdminTopics from './AdminTopics.vue'
 import AdminCategories from './AdminCategories.vue'
 import AdminVideos from './AdminVideos.vue'
+import AdminMaterialCategories from './AdminMaterialCategories.vue'
+import AdminMaterials from './AdminMaterials.vue'
 import AdminBatch from './AdminBatch.vue'
 import AdminHealth from './AdminHealth.vue'
 import AdminRisk from './AdminRisk.vue'
@@ -31,7 +33,7 @@ async function logout() {
 }
 
 onMounted(() => {
-  if (!['overview', 'topics', 'categories', 'videos', 'batch', 'health', 'risk'].includes(tab.value)) {
+  if (!['overview', 'topics', 'categories', 'videos', 'batch', 'material-categories', 'materials', 'health', 'risk'].includes(tab.value)) {
     tab.value = 'overview'
   }
 })
@@ -68,6 +70,12 @@ onMounted(() => {
       </el-tab-pane>
       <el-tab-pane label="视频管理" name="videos" lazy>
         <AdminVideos :active="tab" />
+      </el-tab-pane>
+      <el-tab-pane label="资料分类" name="material-categories" lazy>
+        <AdminMaterialCategories :active="tab" />
+      </el-tab-pane>
+      <el-tab-pane label="资料管理" name="materials" lazy>
+        <AdminMaterials :active="tab" />
       </el-tab-pane>
       <el-tab-pane label="批量录入" name="batch" lazy>
         <AdminBatch :active="tab" />

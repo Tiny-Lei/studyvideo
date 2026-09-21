@@ -40,6 +40,15 @@ func (s *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/pdfs/{id}/open", s.handleOpenPDF)
 	mux.HandleFunc("GET /api/search", s.handleSearch)
 
+	// 资料区（独立于视频区）
+	mux.HandleFunc("GET /api/materials/home", s.handleMaterialHome)
+	mux.HandleFunc("GET /api/materials", s.handleMaterials)
+	mux.HandleFunc("GET /api/materials/search", s.handleMaterialSearch)
+	mux.HandleFunc("GET /api/material-categories/{id}", s.handleMaterialCategory)
+	mux.HandleFunc("GET /api/materials/{id}", s.handleMaterialDetail)
+	mux.HandleFunc("GET /api/materials/{id}/file", s.handleMaterialFile(false))
+	mux.HandleFunc("GET /api/materials/{id}/download", s.handleMaterialFile(true))
+
 	// 管理端接口
 	mux.HandleFunc("POST /api/admin/login", s.handleLogin)
 	mux.HandleFunc("POST /api/admin/logout", s.handleLogout)
@@ -76,6 +85,16 @@ func (s *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/admin/blocked/{ip}", s.requireAdmin(s.handleUnblock))
 	mux.HandleFunc("GET /api/admin/usage", s.requireAdmin(s.handleUsage))
 	mux.HandleFunc("GET /api/admin/config", s.requireAdmin(s.handleConfig))
+
+	// 资料管理
+	mux.HandleFunc("GET /api/admin/material-categories", s.requireAdmin(s.handleAdminMaterialCategories))
+	mux.HandleFunc("POST /api/admin/material-categories", s.requireAdmin(s.handleCreateMaterialCategory))
+	mux.HandleFunc("PUT /api/admin/material-categories/{id}", s.requireAdmin(s.handleUpdateMaterialCategory))
+	mux.HandleFunc("DELETE /api/admin/material-categories/{id}", s.requireAdmin(s.handleDeleteMaterialCategory))
+	mux.HandleFunc("GET /api/admin/materials", s.requireAdmin(s.handleAdminMaterials))
+	mux.HandleFunc("POST /api/admin/materials", s.requireAdmin(s.handleUploadMaterial))
+	mux.HandleFunc("PUT /api/admin/materials/{id}", s.requireAdmin(s.handleUpdateMaterial))
+	mux.HandleFunc("DELETE /api/admin/materials/{id}", s.requireAdmin(s.handleDeleteMaterial))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "接口不存在")

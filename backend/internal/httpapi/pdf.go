@@ -259,37 +259,47 @@ func (s *API) handlePDFFile(download bool) http.HandlerFunc {
 			writeErr(w, http.StatusNotFound, "该资料文件缺失，请在后台重新上传")
 			return
 		}
-		f, info, err := s.files.Open(pdf.FilePath)
-		if errors.Is(err, filestore.ErrNotFound) {
-			slog.Error("资料文件丢失", "pdf_id", pdf.ID, "path", pdf.FilePath)
-			writeErr(w, http.StatusNotFound, "资料文件不存在")
-			return
-		}
-		if err != nil {
-			slog.Error("打开资料文件失败", "error", err)
-			writeErr(w, http.StatusInternalServerError, "读取失败")
-			return
-		}
-		defer f.Close()
-
-		ctype := pdf.MimeType
-		if ctype == "" {
-			ctype = mime.TypeByExtension(filepath.Ext(pdf.FileName))
-		}
-		if ctype == "" {
-			ctype = "application/octet-stream"
-		}
-		disposition := "inline"
-		if download {
-			disposition = "attachment"
-		}
-		w.Header().Set("Content-Type", ctype)
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`,
-			disposition, asciiFallback(pdf.FileName), url.PathEscape(pdf.FileName)))
-		w.Header().Set("Cache-Control", "private, max-age=3600")
-		// http.ServeContent 自动处理 Range / If-Modified-Since，满足阅读器翻页与断点续传
-		http.ServeContent(w, r, pdf.FileName, info.ModTime(), f)
+		s.serveStoredFile(w, r, pdf.FilePath, pdf.FileName, pdf.MimeType, download)
 	}
+}
+
+// serveStoredFile 从本地存储读取文件并响应；支持 Range（PDF 翻页/断点续传）。
+//   - 预览（download=false）→ Content-Disposition: inline
+//   - 下载（download=true） → Content-Disposition: attachment
+func (s *API) serveStoredFile(w http.ResponseWriter, r *http.Request, relPath, fileName, mimeType string, download bool) {
+	if relPath == "" {
+		writeErr(w, http.StatusNotFound, "该资料文件缺失，请在后台重新上传")
+		return
+	}
+	f, info, err := s.files.Open(relPath)
+	if errors.Is(err, filestore.ErrNotFound) {
+		slog.Error("资料文件丢失", "path", relPath)
+		writeErr(w, http.StatusNotFound, "资料文件不存在")
+		return
+	}
+	if err != nil {
+		slog.Error("打开资料文件失败", "error", err)
+		writeErr(w, http.StatusInternalServerError, "读取失败")
+		return
+	}
+	defer f.Close()
+
+	ctype := mimeType
+	if ctype == "" {
+		ctype = mime.TypeByExtension(filepath.Ext(fileName))
+	}
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	disposition := "inline"
+	if download {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`,
+		disposition, asciiFallback(fileName), url.PathEscape(fileName)))
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	http.ServeContent(w, r, fileName, info.ModTime(), f)
 }
 
 func sanitizeFileName(name string) string {

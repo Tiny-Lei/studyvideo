@@ -60,6 +60,15 @@ export const api = {
   pdfDownloadUrl: (id) => `/api/pdfs/${id}/download`,
   search: (q) => request('/api/search', { params: { q } }),
 
+  // 资料区（独立于视频区）
+  materialHome: () => request('/api/materials/home'),
+  materials: (params) => request('/api/materials', { params }),
+  materialSearch: (q) => request('/api/materials/search', { params: { q } }),
+  materialCategory: (id) => request(`/api/material-categories/${id}`),
+  material: (id) => request(`/api/materials/${id}`),
+  materialFileUrl: (id) => `/api/materials/${id}/file`,
+  materialDownloadUrl: (id) => `/api/materials/${id}/download`,
+
   session: () => request('/api/admin/session'),
   login: (password) => request('/api/admin/login', { method: 'POST', body: { password } }),
   logout: () => request('/api/admin/logout', { method: 'POST' }),
@@ -93,5 +102,16 @@ export const api = {
   blocked: () => request('/api/admin/blocked'),
   unblock: (ip) => request(`/api/admin/blocked/${encodeURIComponent(ip)}`, { method: 'DELETE' }),
   usage: (limit = 50) => request('/api/admin/usage', { params: { limit } }),
-  config: () => request('/api/admin/config')
+  config: () => request('/api/admin/config'),
+
+  // 资料管理
+  adminMaterialCategories: () => request('/api/admin/material-categories'),
+  createMaterialCategory: (body) => request('/api/admin/material-categories', { method: 'POST', body }),
+  updateMaterialCategory: (id, body) => request(`/api/admin/material-categories/${id}`, { method: 'PUT', body }),
+  deleteMaterialCategory: (id, mode = '') =>
+    request(`/api/admin/material-categories/${id}`, { method: 'DELETE', params: { mode } }),
+  adminMaterials: (params) => request('/api/admin/materials', { params }),
+  uploadMaterial: (formData) => upload('/api/admin/materials', formData),
+  updateMaterial: (id, formData) => upload(`/api/admin/materials/${id}`, formData, 'PUT'),
+  deleteMaterial: (id) => request(`/api/admin/materials/${id}`, { method: 'DELETE' })
 }

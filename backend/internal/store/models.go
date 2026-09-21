@@ -96,3 +96,40 @@ type VideoFilter struct {
 	Page       int
 	PageSize   int
 }
+
+type MaterialCategory struct {
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	Sort          int       `json:"sort"`
+	MaterialCount int       `json:"material_count"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type Material struct {
+	ID           int64     `json:"id"`
+	CategoryID   int64     `json:"category_id"`
+	CategoryName string    `json:"category_name,omitempty"`
+	GroupName    string    `json:"group_name"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	Tags         string    `json:"tags"`
+	FilePath     string    `json:"file_path,omitempty"`
+	FileName     string    `json:"file_name"`
+	FileSize     int64     `json:"file_size"`
+	MimeType     string    `json:"mime_type"`
+	FileExt      string    `json:"file_ext"`
+	Sort         int       `json:"sort"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type MaterialFilter struct {
+	CategoryID int64
+	GroupName  string
+	Keyword    string
+	FileExt    string
+	Page       int
+	PageSize   int
+}

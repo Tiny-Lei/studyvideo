@@ -29,7 +29,7 @@ func newTestStore(t *testing.T) *Store {
 	t.Cleanup(func() { db.Close() })
 	s := New(db)
 	ctx := context.Background()
-	for _, table := range []string{"video_stats", "pdfs", "videos", "categories", "topics", "ip_daily", "blocked_ips"} {
+	for _, table := range []string{"video_stats", "pdfs", "videos", "categories", "topics", "materials", "material_categories", "ip_daily", "blocked_ips"} {
 		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("清理表 %s 失败: %v", table, err)
 		}

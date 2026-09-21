@@ -43,9 +43,10 @@ type Config struct {
 
 	AlertWebhookURL string
 
-	// PDF 资料本地存储
-	DataDir         string
-	MaxPDFSizeBytes int64
+	// 本地上传文件存储
+	DataDir              string
+	MaxPDFSizeBytes      int64 // 视频配套 PDF 上限
+	MaxMaterialSizeBytes int64 // 资料区文件上限
 
 	// 视频访问/观看明细保留天数（0 表示永久保留）
 	StatsKeepDays int
@@ -172,6 +173,7 @@ func (c *Config) Print(w io.Writer) {
   TRUST_PROXY            %s
   DATA_DIR               %s
   MAX_PDF_SIZE_MB        %d
+  MAX_MATERIAL_SIZE_MB   %d
   STATS_KEEP_DAYS        %d
   DAILY_VIDEO_LIMIT      %d
   DAILY_TOTAL_LIMIT      %d
@@ -190,7 +192,7 @@ func (c *Config) Print(w io.Writer) {
   ALERT_WEBHOOK_URL      %s
 `,
 		c.Addr, dsn, mask(c.AdminPassword), mask(string(c.SessionSecret)), c.CookieSecure, c.TrustProxy,
-		c.DataDir, c.MaxPDFSizeBytes>>20, c.StatsKeepDays,
+		c.DataDir, c.MaxPDFSizeBytes>>20, c.MaxMaterialSizeBytes>>20, c.StatsKeepDays,
 		c.DailyVideoLimit, c.DailyTotalLimit, c.BurstVideoLimit, c.BurstTotalLimit, int(c.BurstWindow.Seconds()),
 		c.BlockMinutes,
 		c.LoginAttempts, int(c.LoginWindow.Seconds()),

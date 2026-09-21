@@ -11,6 +11,8 @@ const loading = ref(true)
 const topics = ref([])
 const recent = ref([])
 const stats = ref({ topics: 0, videos: 0 })
+const materialCategories = ref([])
+const materialStats = ref({ materials: 0, categories: 0 })
 const kw = ref('')
 
 onMounted(async () => {
@@ -23,6 +25,14 @@ onMounted(async () => {
     ElMessage.error(e.message)
   } finally {
     loading.value = false
+  }
+  // 资料区入口（独立加载，互不影响）
+  try {
+    const m = await api.materialHome()
+    materialCategories.value = (m.categories || []).slice(0, 4)
+    materialStats.value = m.stats || { materials: 0, categories: 0 }
+  } catch {
+    /* 资料区不可用时不影响首页视频展示 */
   }
 })
 
@@ -92,6 +102,42 @@ function goSearch() {
           <VideoRow v-for="(v, i) in recent" :key="v.id" :video="v" :index="i + 1" show-topic />
         </div>
       </section>
+
+      <section v-if="materialCategories.length" class="section">
+        <div class="section-head">
+          <div class="section-title"><span class="bar"></span>学习资料</div>
+          <router-link class="section-more" to="/materials">
+            全部 {{ materialStats.materials }} 份资料
+            <el-icon><ArrowRight /></el-icon>
+          </router-link>
+        </div>
+        <div class="topic-grid">
+          <router-link
+            v-for="c in materialCategories"
+            :key="c.id"
+            class="topic-card"
+            :to="`/materials/categories/${c.id}`"
+          >
+            <div class="topic-icon" :style="{ background: gradientFor(c.id + 5) }">
+              <el-icon><Files /></el-icon>
+            </div>
+            <div style="min-width: 0">
+              <div class="name">{{ c.name }}</div>
+              <div class="desc">{{ c.description || '点击查看该分类下的资料' }}</div>
+            </div>
+          </router-link>
+        </div>
+      </section>
     </template>
   </div>
 </template>
+
+<style scoped>
+.section-more {
+  color: var(--el-color-primary);
+  font-size: 13.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+</style>

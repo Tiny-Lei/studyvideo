@@ -67,7 +67,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Cleanup(func() { db.Close() })
 
 	ctx := context.Background()
-	for _, table := range []string{"video_stats", "pdfs", "videos", "categories", "topics", "ip_daily", "blocked_ips"} {
+	for _, table := range []string{"video_stats", "pdfs", "videos", "categories", "topics", "materials", "material_categories", "ip_daily", "blocked_ips"} {
 		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("清理表 %s 失败: %v", table, err)
 		}
@@ -509,5 +509,143 @@ func TestLoginFailureTriggersGlobalLockout(t *testing.T) {
 	}
 	if rec.Header().Get("Retry-After") == "" {
 		t.Fatal("429 应带 Retry-After")
+	}
+}
+
+func TestMaterialEndpoints(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+
+	// 建分类（管理端）
+	body := strings.NewReader(`{"name":"CSP真题","description":"CSP 真题资料","sort":1}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/material-categories", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Token", e.cfg.AdminPassword)
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("创建资料分类失败: %d %s", rec.Code, rec.Body.String())
+	}
+	var catResp struct {
+		Category store.MaterialCategory `json:"category"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &catResp)
+	catID := catResp.Category.ID
+
+	// 未登录不能上传
+	rec = e.do(t, http.MethodPost, "/api/admin/materials", nil, false)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("未登录上传应 401, got %d", rec.Code)
+	}
+
+	// 上传 Markdown
+	upload := func(name, title, group, content string) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		_ = mw.WriteField("category_id", fmt.Sprintf("%d", catID))
+		_ = mw.WriteField("title", title)
+		_ = mw.WriteField("group_name", group)
+		_ = mw.WriteField("tags", "CSP,真题")
+		fw, _ := mw.CreateFormFile("file", name)
+		_, _ = fw.Write([]byte(content))
+		mw.Close()
+		r := httptest.NewRequest(http.MethodPost, "/api/admin/materials", &buf)
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		r.Header.Set("X-Admin-Token", e.cfg.AdminPassword)
+		w := httptest.NewRecorder()
+		e.mux.ServeHTTP(w, r)
+		return w
+	}
+
+	rec = upload("解析.md", "CSP-J 2023 初赛 解析", "CSP-J 2023", "# 解析\n\n**考点**：枚举")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上传 MD 失败: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = upload("试卷.pdf", "CSP-J 2023 初赛 试卷", "CSP-J 2023", minimalPDF)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上传 PDF 失败: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 不支持的类型
+	rec = upload("evil.exe", "坏文件", "", "MZ")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("不支持类型应 400, got %d", rec.Code)
+	}
+
+	materials, _, err := e.store.ListMaterials(ctx, store.MaterialFilter{CategoryID: catID, Page: 1, PageSize: 10})
+	if err != nil || len(materials) != 2 {
+		t.Fatalf("资料列表异常: %v len=%d", err, len(materials))
+	}
+
+	// 公开首页 / 分类页
+	rec = e.do(t, http.MethodGet, "/api/materials/home", nil, false)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "CSP真题") {
+		t.Fatalf("资料首页异常: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do(t, http.MethodGet, fmt.Sprintf("/api/material-categories/%d", catID), nil, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("资料分类页异常: %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "CSP-J 2023") {
+		t.Fatal("分类页应包含分组名")
+	}
+
+	// 搜索隔离：资料搜索有结果、视频搜索为空
+	rec = e.do(t, http.MethodGet, "/api/materials/search?q=CSP", nil, false)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "CSP-J 2023") {
+		t.Fatalf("资料搜索异常: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do(t, http.MethodGet, "/api/search?q=CSP", nil, false)
+	if strings.Contains(rec.Body.String(), "CSP-J 2023") {
+		t.Fatal("视频搜索不应返回资料")
+	}
+
+	// MD 原文（前端渲染用）+ 下载头
+	mdID := materials[0].ID
+	if materials[0].FileExt != "md" {
+		mdID = materials[1].ID
+	}
+	rec = e.do(t, http.MethodGet, fmt.Sprintf("/api/materials/%d/file", mdID), nil, false)
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/markdown") {
+		t.Fatalf("MD 原文接口异常: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	rec = e.do(t, http.MethodGet, fmt.Sprintf("/api/materials/%d/download", mdID), nil, false)
+	if !strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("下载应为 attachment: %s", rec.Header().Get("Content-Disposition"))
+	}
+
+	// 公开详情不暴露路径 + 同分组兄弟
+	rec = e.do(t, http.MethodGet, fmt.Sprintf("/api/materials/%d", mdID), nil, false)
+	if strings.Contains(rec.Body.String(), "file_path") || strings.Contains(rec.Body.String(), e.files.Root()) {
+		t.Fatal("公开详情不应暴露文件路径")
+	}
+	if !strings.Contains(rec.Body.String(), "siblings") {
+		t.Fatal("详情应包含同套资料")
+	}
+
+	// 删除资料 → 文件清理
+	full, _ := e.store.GetMaterial(ctx, mdID)
+	rec = e.do(t, http.MethodDelete, fmt.Sprintf("/api/admin/materials/%d", mdID), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("删除资料失败: %d", rec.Code)
+	}
+	if e.files.Exists(full.FilePath) {
+		t.Fatal("删除资料后文件应清理")
+	}
+
+	// 非空分类默认拒绝删除
+	rec = e.do(t, http.MethodDelete, fmt.Sprintf("/api/admin/material-categories/%d", catID), nil, true)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("非空分类应 409, got %d", rec.Code)
+	}
+	// mode=delete 连文件一起删
+	remaining, _, _ := e.store.ListMaterials(ctx, store.MaterialFilter{CategoryID: catID, Page: 1, PageSize: 10})
+	path := remaining[0].FilePath
+	rec = e.do(t, http.MethodDelete, fmt.Sprintf("/api/admin/material-categories/%d?mode=delete", catID), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mode=delete 删除分类失败: %d %s", rec.Code, rec.Body.String())
+	}
+	if e.files.Exists(path) {
+		t.Fatal("删除分类后资料文件应清理")
 	}
 }
