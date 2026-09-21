@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../../api'
 import { formatDateTime, formatSize, tagList } from '../../utils'
@@ -20,6 +20,26 @@ const editing = ref(null)
 const file = ref(null)
 const uploadRef = ref(null)
 const form = ref({ category_id: null, group_name: '', title: '', tags: '', description: '', sort: 0 })
+
+const currentCategoryTags = computed(() => {
+  const c = categories.value.find((x) => x.id === form.value.category_id)
+  return c && c.tags ? c.tags.split(',').map((t) => t.trim()).filter(Boolean) : []
+})
+
+const selectedTags = computed(() =>
+  String(form.value.tags || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+)
+
+function toggleTag(tag) {
+  const list = selectedTags.value
+  const idx = list.indexOf(tag)
+  if (idx >= 0) list.splice(idx, 1)
+  else list.push(tag)
+  form.value.tags = list.join(',')
+}
 
 const extOptions = [
   { value: 'pdf', label: 'PDF' },
@@ -297,7 +317,19 @@ watch(
           <el-input v-model="form.title" maxlength="255" placeholder="例如：2024-03 一级 试卷" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="form.tags" placeholder="多个标签用逗号分隔，例如：GESP,一级,试卷" />
+          <div v-if="currentCategoryTags.length" class="tag-picker">
+            <el-tag
+              v-for="t in currentCategoryTags"
+              :key="t"
+              class="tag-chip"
+              :effect="selectedTags.includes(t) ? 'dark' : 'plain'"
+              round
+              @click="toggleTag(t)"
+            >
+              {{ t }}
+            </el-tag>
+          </div>
+          <el-input v-model="form.tags" placeholder="多个标签用逗号分隔，例如：GESP1级,试卷,解析" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.description" type="textarea" :rows="3" maxlength="2000" placeholder="资料说明、适用范围等" />
@@ -313,3 +345,18 @@ watch(
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.tag-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.tag-chip {
+  cursor: pointer;
+  user-select: none;
+}
+</style>

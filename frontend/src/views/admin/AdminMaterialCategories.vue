@@ -13,7 +13,7 @@ const categories = ref([])
 const dialogVisible = ref(false)
 const saving = ref(false)
 const editing = ref(null)
-const form = ref({ name: '', description: '', sort: 0 })
+const form = ref({ name: '', description: '', tags: '', sort: 0 })
 
 async function load() {
   loading.value = true
@@ -29,13 +29,13 @@ async function load() {
 
 function openCreate() {
   editing.value = null
-  form.value = { name: '', description: '', sort: 0 }
+  form.value = { name: '', description: '', tags: '', sort: 0 }
   dialogVisible.value = true
 }
 
 function openEdit(row) {
   editing.value = row
-  form.value = { name: row.name, description: row.description || '', sort: row.sort }
+  form.value = { name: row.name, description: row.description || '', tags: row.tags || '', sort: row.sort }
   dialogVisible.value = true
 }
 
@@ -112,7 +112,15 @@ watch(
     <el-table v-loading="loading" :data="categories" stripe>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="name" label="分类名称" min-width="160" />
-      <el-table-column prop="description" label="简介" min-width="220" show-overflow-tooltip />
+      <el-table-column prop="description" label="简介" min-width="180" show-overflow-tooltip />
+      <el-table-column label="预设标签" min-width="200">
+        <template #default="{ row }">
+          <el-tag v-for="t in String(row.tags || '').split(',').filter(Boolean)" :key="t" size="small" effect="plain" round style="margin: 2px">
+            {{ t }}
+          </el-tag>
+          <span v-if="!row.tags" style="color: var(--sv-muted); font-size: 12px">—</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="sort" label="排序" width="80" />
       <el-table-column label="资料数" width="100">
         <template #default="{ row }">
@@ -137,6 +145,12 @@ watch(
         </el-form-item>
         <el-form-item label="简介">
           <el-input v-model="form.description" type="textarea" :rows="3" maxlength="500" placeholder="一句话介绍该分类" />
+        </el-form-item>
+        <el-form-item label="预设标签">
+          <el-input v-model="form.tags" maxlength="500" placeholder="多个用逗号分隔，例如：GESP1级,GESP2级,GESP3级" />
+          <div style="color: var(--sv-muted); font-size: 12px; margin-top: 4px">
+            用户可在该分类页按标签筛选；上传资料时点击标签可快速填入
+          </div>
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sort" :min="-9999" :max="9999" />

@@ -73,7 +73,29 @@ func migrate(db *sql.DB) error {
 	if err := migratePDFsToFileStorage(db); err != nil {
 		return err
 	}
+	if err := migrateMaterialCategoryTags(db); err != nil {
+		return err
+	}
 	return migrateVideosToCategories(db)
+}
+
+// migrateMaterialCategoryTags 为旧库的 material_categories 补充 tags 列（预设标签）。
+func migrateMaterialCategoryTags(db *sql.DB) error {
+	cols, err := tableColumns(db, "material_categories")
+	if err != nil {
+		return err
+	}
+	if len(cols) == 0 {
+		return nil
+	}
+	if _, ok := cols["tags"]; ok {
+		return nil
+	}
+	if _, err := db.Exec("ALTER TABLE material_categories ADD COLUMN tags VARCHAR(500) NOT NULL DEFAULT '' AFTER description"); err != nil {
+		return fmt.Errorf("为 material_categories 添加 tags 列失败: %w", err)
+	}
+	slog.Info("material_categories 表已增加 tags 列")
+	return nil
 }
 
 // migrateVideosToCategories 为旧库补充 categories 结构：

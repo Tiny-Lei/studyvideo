@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 	"strings"
 )
 
 // ---------------- 资料分类 ----------------
 
-const materialCategoryCols = `c.id, c.name, COALESCE(c.description,''), c.sort, c.created_at, c.updated_at,
+const materialCategoryCols = `c.id, c.name, COALESCE(c.description,''), COALESCE(c.tags,''), c.sort, c.created_at, c.updated_at,
 	(SELECT COUNT(*) FROM materials m WHERE m.category_id = c.id)`
 
 func (s *Store) ListMaterialCategories(ctx context.Context) ([]MaterialCategory, error) {
@@ -23,7 +24,7 @@ func (s *Store) ListMaterialCategories(ctx context.Context) ([]MaterialCategory,
 	list := make([]MaterialCategory, 0, 16)
 	for rows.Next() {
 		var c MaterialCategory
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Sort, &c.CreatedAt, &c.UpdatedAt, &c.MaterialCount); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Tags, &c.Sort, &c.CreatedAt, &c.UpdatedAt, &c.MaterialCount); err != nil {
 			return nil, err
 		}
 		list = append(list, c)
@@ -35,7 +36,7 @@ func (s *Store) GetMaterialCategory(ctx context.Context, id int64) (*MaterialCat
 	var c MaterialCategory
 	err := s.db.QueryRowContext(ctx, `SELECT `+materialCategoryCols+`
 		FROM material_categories c WHERE c.id = ?`, id).
-		Scan(&c.ID, &c.Name, &c.Description, &c.Sort, &c.CreatedAt, &c.UpdatedAt, &c.MaterialCount)
+		Scan(&c.ID, &c.Name, &c.Description, &c.Tags, &c.Sort, &c.CreatedAt, &c.UpdatedAt, &c.MaterialCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -46,8 +47,8 @@ func (s *Store) GetMaterialCategory(ctx context.Context, id int64) (*MaterialCat
 }
 
 func (s *Store) CreateMaterialCategory(ctx context.Context, c *MaterialCategory) error {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO material_categories (name, description, sort) VALUES (?,?,?)`,
-		c.Name, c.Description, c.Sort)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO material_categories (name, description, tags, sort) VALUES (?,?,?,?)`,
+		c.Name, c.Description, c.Tags, c.Sort)
 	if err != nil {
 		return err
 	}
@@ -56,8 +57,8 @@ func (s *Store) CreateMaterialCategory(ctx context.Context, c *MaterialCategory)
 }
 
 func (s *Store) UpdateMaterialCategory(ctx context.Context, c *MaterialCategory) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE material_categories SET name=?, description=?, sort=? WHERE id=?`,
-		c.Name, c.Description, c.Sort, c.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE material_categories SET name=?, description=?, tags=?, sort=? WHERE id=?`,
+		c.Name, c.Description, c.Tags, c.Sort, c.ID)
 	if err != nil {
 		return err
 	}
@@ -320,4 +321,70 @@ func (s *Store) PDFFilePathsByMaterialCategory(ctx context.Context, categoryID i
 		paths = append(paths, p)
 	}
 	return paths, rows.Err()
+}
+
+// TagCount 标签及其资料数量。
+type TagCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// MaterialTagStats 统计某分类下各标签的资料数量（预设但尚未使用的标签计 0）。
+func (s *Store) MaterialTagStats(ctx context.Context, categoryID int64) ([]TagCount, error) {
+	// 预设标签（保持后台设置的顺序）
+	preset := make([]string, 0, 8)
+	category, err := s.GetMaterialCategory(ctx, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	if category.Tags != "" {
+		for _, t := range strings.Split(category.Tags, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				preset = append(preset, t)
+			}
+		}
+	}
+
+	// 实际使用情况
+	rows, err := s.db.QueryContext(ctx, `SELECT tags FROM materials WHERE category_id=? AND tags <> ''`, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := make(map[string]int, 16)
+	for rows.Next() {
+		var tags string
+		if err := rows.Scan(&tags); err != nil {
+			return nil, err
+		}
+		for _, t := range strings.Split(tags, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				counts[t]++
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 预设优先，其余按数量倒序
+	result := make([]TagCount, 0, len(counts)+len(preset))
+	seen := make(map[string]bool, len(counts)+len(preset))
+	for _, name := range preset {
+		result = append(result, TagCount{Name: name, Count: counts[name]})
+		seen[name] = true
+	}
+	rest := make([]TagCount, 0, len(counts))
+	for name, n := range counts {
+		if !seen[name] {
+			rest = append(rest, TagCount{Name: name, Count: n})
+		}
+	}
+	sort.Slice(rest, func(i, j int) bool {
+		if rest[i].Count != rest[j].Count {
+			return rest[i].Count > rest[j].Count
+		}
+		return rest[i].Name < rest[j].Name
+	})
+	return append(result, rest...), nil
 }

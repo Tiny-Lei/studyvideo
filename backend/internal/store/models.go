@@ -101,6 +101,7 @@ type MaterialCategory struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
 	Description   string    `json:"description"`
+	Tags          string    `json:"tags"`
 	Sort          int       `json:"sort"`
 	MaterialCount int       `json:"material_count"`
 	CreatedAt     time.Time `json:"created_at"`

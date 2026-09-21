@@ -78,10 +78,17 @@ func (s *API) handleMaterialCategory(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
+	tags, err := s.store.MaterialTagStats(ctx, id)
+	if err != nil {
+		slog.Error("查询标签统计失败", "error", err)
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"category":  category,
 		"materials": materials,
 		"groups":    groups,
+		"tags":      tags,
 	})
 }
 
@@ -201,6 +208,7 @@ func (s *API) handleMaterialFile(download bool) http.HandlerFunc {
 type materialCategoryInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Tags        string `json:"tags"`
 	Sort        int    `json:"sort"`
 }
 
@@ -224,7 +232,7 @@ func (s *API) handleCreateMaterialCategory(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "分类名称不能为空")
 		return
 	}
-	c := &store.MaterialCategory{Name: req.Name, Description: trim(req.Description), Sort: req.Sort}
+	c := &store.MaterialCategory{Name: req.Name, Description: trim(req.Description), Tags: normalizeTags(req.Tags), Sort: req.Sort}
 	if err := s.store.CreateMaterialCategory(r.Context(), c); err != nil {
 		slog.Error("创建资料分类失败", "error", err)
 		writeErr(w, http.StatusInternalServerError, "创建失败")
@@ -252,7 +260,7 @@ func (s *API) handleUpdateMaterialCategory(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "分类名称不能为空")
 		return
 	}
-	c := &store.MaterialCategory{ID: id, Name: req.Name, Description: trim(req.Description), Sort: req.Sort}
+	c := &store.MaterialCategory{ID: id, Name: req.Name, Description: trim(req.Description), Tags: normalizeTags(req.Tags), Sort: req.Sort}
 	err = s.store.UpdateMaterialCategory(r.Context(), c)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "分类不存在")

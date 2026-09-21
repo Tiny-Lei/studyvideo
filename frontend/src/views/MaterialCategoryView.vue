@@ -12,17 +12,39 @@ const loading = ref(true)
 const category = ref(null)
 const materials = ref([])
 const groups = ref([])
-const activeGroup = ref('')
+const tagStats = ref([])
+const activeTags = ref([])
 const kw = ref('')
 
+function toggleTag(name) {
+  const list = activeTags.value
+  const idx = list.indexOf(name)
+  if (idx >= 0) list.splice(idx, 1)
+  else list.push(name)
+  activeTags.value = [...list]
+}
+
+function materialTags(m) {
+  return String(m.tags || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+}
+
+// 关键词 + 标签双重筛选（多选标签为「满足任一」）
 const filtered = computed(() => {
-  if (!kw.value.trim()) return materials.value
+  let list = materials.value
+  if (activeTags.value.length) {
+    list = list.filter((m) => materialTags(m).some((t) => activeTags.value.includes(t)))
+  }
   const q = kw.value.trim().toLowerCase()
-  return materials.value.filter(
+  if (!q) return list
+  return list.filter(
     (m) =>
       m.title.toLowerCase().includes(q) ||
       (m.tags || '').toLowerCase().includes(q) ||
-      (m.description || '').toLowerCase().includes(q)
+      (m.description || '').toLowerCase().includes(q) ||
+      (m.group_name || '').toLowerCase().includes(q)
   )
 })
 
@@ -54,7 +76,8 @@ async function load() {
     category.value = res.category
     materials.value = res.materials || []
     groups.value = res.groups || []
-    activeGroup.value = ''
+    tagStats.value = res.tags || []
+    activeTags.value = []
   } catch (e) {
     ElMessage.error(e.message)
     if (e.status === 404) router.replace('/materials')
@@ -90,6 +113,32 @@ watch(() => route.params.id, load)
         <el-tag class="topic-count" effect="light" round>{{ materials.length }} 份资料</el-tag>
       </div>
 
+      <div v-if="tagStats.length" class="tag-filter">
+        <span class="tag-filter-label">
+          <el-icon style="margin-right: 4px"><PriceTag /></el-icon>按标签筛选
+        </span>
+        <el-tag
+          class="tag-filter-chip"
+          :effect="activeTags.length === 0 ? 'dark' : 'plain'"
+          round
+          @click="activeTags = []"
+        >
+          全部 {{ materials.length }}
+        </el-tag>
+        <el-tag
+          v-for="t in tagStats"
+          :key="t.name"
+          class="tag-filter-chip"
+          :class="{ 'is-empty': t.count === 0 }"
+          :effect="activeTags.includes(t.name) ? 'dark' : 'plain'"
+          :type="activeTags.includes(t.name) ? 'primary' : 'info'"
+          round
+          @click="toggleTag(t.name)"
+        >
+          {{ t.name }}<span class="tag-count">{{ t.count }}</span>
+        </el-tag>
+      </div>
+
       <div class="topic-toolbar">
         <el-input
           v-model="kw"
@@ -100,7 +149,10 @@ watch(() => route.params.id, load)
         >
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <span v-if="groups.length" class="toolbar-label">共 {{ groups.length }} 套</span>
+        <span v-if="activeTags.length || kw" class="toolbar-label">
+          筛选出 {{ filtered.length }} 份资料
+        </span>
+        <span v-else-if="groups.length" class="toolbar-label">共 {{ groups.length }} 套</span>
       </div>
 
       <!-- 有分组：按套题展示，套题内并列「试卷 / 解析卷」 -->
@@ -132,7 +184,7 @@ watch(() => route.params.id, load)
 
       <div v-else class="empty-box">
         <div class="icon"><el-icon><FolderOpened /></el-icon></div>
-        <p>{{ kw ? '没有匹配的资料' : '该分类下暂时没有资料' }}</p>
+        <p>{{ kw || activeTags.length ? '没有符合条件的资料，试试更换标签或关键词' : '该分类下暂时没有资料' }}</p>
       </div>
     </template>
   </div>
@@ -149,6 +201,40 @@ watch(() => route.params.id, load)
   align-items: center;
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.tag-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: #f8fafc;
+  border: 1px solid var(--sv-line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.tag-filter-label {
+  color: var(--sv-muted);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tag-filter-chip {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tag-filter-chip.is-empty:not(.el-tag--dark) {
+  opacity: 0.55;
+}
+
+.tag-count {
+  margin-left: 5px;
+  opacity: 0.75;
+  font-size: 11px;
 }
 
 .toolbar-label {
